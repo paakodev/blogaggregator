@@ -55,10 +55,12 @@ func main() {
 	defer db.Close()
 
 	state := &state{config: cfg, db: database.New(db)}
+
 	registry := newCommandRegistry()
 	registry.register("login", handlerLogin)
 	registry.register("register", handlerRegister)
 	registry.register("reset", handlerReset)
+	registry.register("users", handlerUsers)
 
 	args := os.Args[1:]
 	if len(args) == 0 {
@@ -126,5 +128,22 @@ func handlerReset(state *state, cmd command) error {
 		return fmt.Errorf("failed to reset database: %v", err)
 	}
 	fmt.Println("Database reset successfully")
+	return nil
+}
+
+func handlerUsers(state *state, cmd command) error {
+	users, err := state.db.GetAllUsers(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to get users: %v", err)
+	}
+
+	fmt.Println("Users:")
+	for _, user := range users {
+		if user.Name == state.config.CurrentUserName {
+			fmt.Printf("* %s (current)\n", user.Name)
+		} else {
+			fmt.Printf("* %s\n", user.Name)
+		}
+	}
 	return nil
 }

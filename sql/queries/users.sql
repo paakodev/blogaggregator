@@ -20,3 +20,7 @@ LIMIT 1;
 
 -- name: Reset :exec
 DELETE FROM users;
+
+-- name: GetAllUsers :many
+SELECT *
+FROM users;
