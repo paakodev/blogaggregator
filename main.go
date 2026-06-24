@@ -33,6 +33,7 @@ func main() {
 	registry.Register("users", handlerUsers)
 	registry.Register("agg", handlerAgg)
 	registry.Register("addfeed", handlerAddFeed)
+	registry.Register("feeds", handlerFeeds)
 
 	args := os.Args[1:]
 	if len(args) == 0 {
@@ -165,5 +166,18 @@ func handlerAddFeed(state *models.State, cmd models.Command) error {
 	fmt.Printf("ID:         %s\n", feed.ID)
 	fmt.Printf("Created:    %s\n", feed.CreatedAt)
 	fmt.Printf("Updated:    %s\n", feed.UpdatedAt)
+	return nil
+}
+
+func handlerFeeds(state *models.State, cmd models.Command) error {
+	feeds, err := state.DB.GetAllFeedsWithUsers(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to list feeds: %s", err)
+	}
+
+	fmt.Println("Feeds:")
+	for _, feed := range feeds {
+		fmt.Printf("* %s (%s) - %s\n", feed.Name, feed.Url, feed.UserName)
+	}
 	return nil
 }
