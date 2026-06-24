@@ -3,6 +3,7 @@ package main
 import (
 	"blogaggregator/internal/config"
 	"blogaggregator/internal/database"
+	"blogaggregator/models"
 	"context"
 	"database/sql"
 	"fmt"
@@ -11,37 +12,6 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/lib/pq"
 )
-
-type command struct {
-	name string
-	args []string
-}
-
-type commandRegistry struct {
-	cmds map[string]func(*state, command) error
-}
-
-func (c *commandRegistry) run(state *state, cmd command) error {
-	if handler, exists := c.cmds[cmd.name]; exists {
-		return handler(state, cmd)
-	}
-	return fmt.Errorf("unknown command: %s", cmd.name)
-}
-
-func (c *commandRegistry) register(name string, f func(*state, command) error) {
-	c.cmds[name] = f
-}
-
-func newCommandRegistry() *commandRegistry {
-	return &commandRegistry{
-		cmds: make(map[string]func(*state, command) error),
-	}
-}
-
-type state struct {
-	config *config.Config
-	db     *database.Queries
-}
 
 func main() {
 	cfg, err := config.Read()
@@ -54,13 +24,15 @@ func main() {
 	}
 	defer db.Close()
 
-	state := &state{config: cfg, db: database.New(db)}
+	state := &models.State{Config: cfg, DB: database.New(db)}
 
-	registry := newCommandRegistry()
-	registry.register("login", handlerLogin)
-	registry.register("register", handlerRegister)
-	registry.register("reset", handlerReset)
-	registry.register("users", handlerUsers)
+	registry := models.NewCommandRegistry()
+	registry.Register("login", handlerLogin)
+	registry.Register("register", handlerRegister)
+	registry.Register("reset", handlerReset)
+	registry.Register("users", handlerUsers)
+	registry.Register("agg", handlerAgg)
+	registry.Register("addfeed", handlerAddFeed)
 
 	args := os.Args[1:]
 	if len(args) == 0 {
@@ -68,24 +40,26 @@ func main() {
 		os.Exit(1)
 	}
 
-	cmd := command{name: args[0], args: args[1:]}
-	if err := registry.run(state, cmd); err != nil {
+	cmd := models.Command{Name: args[0], Args: args[1:]}
+	if err := registry.Run(state, cmd); err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
+
+	os.Exit(0)
 }
 
-func handlerLogin(state *state, cmd command) error {
-	if len(cmd.args) < 1 {
+func handlerLogin(state *models.State, cmd models.Command) error {
+	if len(cmd.Args) < 1 {
 		return fmt.Errorf("username is required")
 	}
 
-	username := cmd.args[0]
-	user, err := state.db.GetUserByName(context.Background(), username)
+	username := cmd.Args[0]
+	user, err := state.DB.GetUserByName(context.Background(), username)
 	if err != nil {
 		return fmt.Errorf("failed to get user: %v", err)
 	}
-	if err := state.config.SetUser(user.Name); err != nil {
+	if err := state.Config.SetUser(user.Name); err != nil {
 		return fmt.Errorf("failed to set user: %v", err)
 	}
 
@@ -93,15 +67,15 @@ func handlerLogin(state *state, cmd command) error {
 	return nil
 }
 
-func handlerRegister(state *state, cmd command) error {
-	if len(cmd.args) < 1 {
+func handlerRegister(state *models.State, cmd models.Command) error {
+	if len(cmd.Args) < 1 {
 		return fmt.Errorf("username is required")
 	}
 
-	username := cmd.args[0]
+	username := cmd.Args[0]
 	userID := uuid.New()
 
-	user, err := state.db.CreateUser(
+	user, err := state.DB.CreateUser(
 		context.Background(),
 		database.CreateUserParams{
 			ID:   userID,
@@ -111,7 +85,7 @@ func handlerRegister(state *state, cmd command) error {
 		return fmt.Errorf("failed to create user: %v", err)
 	}
 
-	if err := state.config.SetUser(user.Name); err != nil {
+	if err := state.Config.SetUser(user.Name); err != nil {
 		return fmt.Errorf("failed to set user: %v", err)
 	}
 
@@ -123,27 +97,73 @@ func handlerRegister(state *state, cmd command) error {
 	return nil
 }
 
-func handlerReset(state *state, cmd command) error {
-	if err := state.db.Reset(context.Background()); err != nil {
+func handlerReset(state *models.State, cmd models.Command) error {
+	if err := state.DB.Reset(context.Background()); err != nil {
 		return fmt.Errorf("failed to reset database: %v", err)
 	}
 	fmt.Println("Database reset successfully")
 	return nil
 }
 
-func handlerUsers(state *state, cmd command) error {
-	users, err := state.db.GetAllUsers(context.Background())
+func handlerUsers(state *models.State, cmd models.Command) error {
+	users, err := state.DB.GetAllUsers(context.Background())
 	if err != nil {
 		return fmt.Errorf("failed to get users: %v", err)
 	}
 
 	fmt.Println("Users:")
 	for _, user := range users {
-		if user.Name == state.config.CurrentUserName {
+		if user.Name == state.Config.CurrentUserName {
 			fmt.Printf("* %s (current)\n", user.Name)
 		} else {
 			fmt.Printf("* %s\n", user.Name)
 		}
 	}
+	return nil
+}
+
+func handlerAgg(state *models.State, cmd models.Command) error {
+	url := "https://www.wagslane.dev/index.xml"
+	rssFeed, err := fetchFeed(context.Background(), url)
+	if err != nil {
+		return fmt.Errorf("failed to fetch feed: %v", err)
+	}
+
+	fmt.Printf("Feed:\n%#v\n", rssFeed)
+	return nil
+}
+
+func handlerAddFeed(state *models.State, cmd models.Command) error {
+	if len(cmd.Args) < 2 {
+		return fmt.Errorf("feed name and URL are required")
+	}
+
+	feedName := cmd.Args[0]
+	feedURL := cmd.Args[1]
+
+	user, err := state.DB.GetUserByName(context.Background(), state.Config.CurrentUserName)
+	if err != nil {
+		return fmt.Errorf("failed to get current user: %v", err)
+	}
+
+	feedID := uuid.New()
+	feed, err := state.DB.CreateFeed(
+		context.Background(),
+		database.CreateFeedParams{
+			ID:     feedID,
+			Name:   feedName,
+			Url:    feedURL,
+			UserID: user.ID,
+		})
+	if err != nil {
+		return fmt.Errorf("failed to create feed: %v", err)
+	}
+
+	fmt.Println("Feed added successfully")
+	fmt.Printf("Name:       %s\n", feed.Name)
+	fmt.Printf("URL:        %s\n", feed.Url)
+	fmt.Printf("ID:         %s\n", feed.ID)
+	fmt.Printf("Created:    %s\n", feed.CreatedAt)
+	fmt.Printf("Updated:    %s\n", feed.UpdatedAt)
 	return nil
 }
