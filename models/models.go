@@ -3,6 +3,7 @@ package models
 import (
 	"blogaggregator/internal/config"
 	"blogaggregator/internal/database"
+	"database/sql"
 	"fmt"
 )
 
@@ -33,6 +34,7 @@ func NewCommandRegistry() *CommandRegistry {
 }
 
 type State struct {
-	Config *config.Config
-	DB     *database.Queries
+	Config    *config.Config
+	DBQueries *database.Queries
+	DB        *sql.DB
 }
