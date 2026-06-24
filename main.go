@@ -32,10 +32,10 @@ func main() {
 	registry.Register("reset", handlerReset)
 	registry.Register("users", handlerUsers)
 	registry.Register("agg", handlerAgg)
-	registry.Register("addfeed", handlerAddFeed)
+	registry.Register("addfeed", middlewareLoggedIn(handlerAddFeed))
 	registry.Register("feeds", handlerFeeds)
-	registry.Register("follow", handlerFollowFeed)
-	registry.Register("following", handlerFollowingFeeds)
+	registry.Register("follow", middlewareLoggedIn(handlerFollowFeed))
+	registry.Register("following", middlewareLoggedIn(handlerFollowingFeeds))
 
 	args := os.Args[1:]
 	if len(args) == 0 {
@@ -50,6 +50,16 @@ func main() {
 	}
 
 	os.Exit(0)
+}
+
+func middlewareLoggedIn(handler func(s *models.State, cmd models.Command, user database.User) error) func(*models.State, models.Command) error {
+	return func(state *models.State, cmd models.Command) error {
+		user, err := state.DBQueries.GetUserByName(context.Background(), state.Config.CurrentUserName)
+		if err != nil {
+			return fmt.Errorf("failed to get user: %v", err)
+		}
+		return handler(state, cmd, user)
+	}
 }
 
 func handlerLogin(state *models.State, cmd models.Command) error {
@@ -136,18 +146,13 @@ func handlerAgg(state *models.State, cmd models.Command) error {
 	return nil
 }
 
-func handlerAddFeed(state *models.State, cmd models.Command) error {
+func handlerAddFeed(state *models.State, cmd models.Command, user database.User) error {
 	if len(cmd.Args) < 2 {
 		return fmt.Errorf("feed name and URL are required")
 	}
 
 	feedName := cmd.Args[0]
 	feedURL := cmd.Args[1]
-
-	user, err := state.DBQueries.GetUserByName(context.Background(), state.Config.CurrentUserName)
-	if err != nil {
-		return fmt.Errorf("failed to get current user: %v", err)
-	}
 
 	tx, err := state.DB.Begin()
 	if err != nil {
@@ -205,7 +210,7 @@ func handlerFeeds(state *models.State, cmd models.Command) error {
 	return nil
 }
 
-func handlerFollowFeed(state *models.State, cmd models.Command) error {
+func handlerFollowFeed(state *models.State, cmd models.Command, user database.User) error {
 	if len(cmd.Args) < 1 {
 		return fmt.Errorf("feed URL is required")
 	}
@@ -213,11 +218,6 @@ func handlerFollowFeed(state *models.State, cmd models.Command) error {
 	feed, err := state.DBQueries.GetFeedByURL(context.Background(), feedURL)
 	if err != nil {
 		return fmt.Errorf("failed to get feed by URL: %v", err)
-	}
-
-	user, err := state.DBQueries.GetUserByName(context.Background(), state.Config.CurrentUserName)
-	if err != nil {
-		return fmt.Errorf("failed to get current user: %v", err)
 	}
 
 	newFollowID := uuid.New()
@@ -238,10 +238,10 @@ func handlerFollowFeed(state *models.State, cmd models.Command) error {
 	return nil
 }
 
-func handlerFollowingFeeds(state *models.State, cmd models.Command) error {
+func handlerFollowingFeeds(state *models.State, cmd models.Command, user database.User) error {
 	followedFeeds, err := state.DBQueries.GetFeedFollowsForUser(
 		context.Background(),
-		state.Config.CurrentUserName,
+		user.Name,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to get followed feeds: %v", err)
