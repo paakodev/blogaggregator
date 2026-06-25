@@ -36,6 +36,7 @@ func main() {
 	registry.Register("feeds", handlerFeeds)
 	registry.Register("follow", middlewareLoggedIn(handlerFollowFeed))
 	registry.Register("following", middlewareLoggedIn(handlerFollowingFeeds))
+	registry.Register("unfollow", middlewareLoggedIn(handlerUnfollowFeed))
 
 	args := os.Args[1:]
 	if len(args) == 0 {
@@ -194,6 +195,29 @@ func handlerAddFeed(state *models.State, cmd models.Command, user database.User)
 	fmt.Printf("Follow ID:  %s\n", newFollow.ID)
 	fmt.Printf("Created:    %s\n", feed.CreatedAt)
 	fmt.Printf("Updated:    %s\n", feed.UpdatedAt)
+	return nil
+}
+
+func handlerUnfollowFeed(state *models.State, cmd models.Command, user database.User) error {
+	if len(cmd.Args) < 1 {
+		return fmt.Errorf("feed URL is required")
+	}
+	feedURL := cmd.Args[0]
+	feed, err := state.DBQueries.GetFeedByURL(context.Background(), feedURL)
+	if err != nil {
+		return fmt.Errorf("failed to get feed by URL: %v", err)
+	}
+
+	if err := state.DBQueries.FeedUnfollow(context.Background(), database.FeedUnfollowParams{
+		FeedID: feed.ID,
+		UserID: user.ID,
+	}); err != nil {
+		return fmt.Errorf("failed to unfollow feed: %v", err)
+	}
+
+	fmt.Println("Feed unfollowed successfully")
+	fmt.Printf("Feed Name:  %s (ID: %s)\n", feed.Name, feed.ID)
+
 	return nil
 }
 
