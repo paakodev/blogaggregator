@@ -172,7 +172,7 @@ func handlerAgg(state *models.State, cmd models.Command) error {
 			fmt.Printf("Error scraping feeds: %v\n", err)
 		}
 	}
-	return nil
+	//return nil
 }
 
 func handlerAddFeed(state *models.State, cmd models.Command, user database.User) error {
