@@ -1,12 +1,17 @@
 package main
 
 import (
+	"blogaggregator/internal/database"
 	"blogaggregator/models"
 	"context"
+	"database/sql"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 func fetchFeed(ctx context.Context, feedURL string) (*models.RSSFeed, error) {
@@ -53,7 +58,8 @@ func scrapeFeeds(ctx context.Context, state *models.State) error {
 		return fmt.Errorf("failed to update feed last fetched: %v", err)
 	}
 
-	fmt.Printf("Fetching feed: %s (%s)\n", feed.Name, feed.Url)
+	dt := time.Now()
+	fmt.Printf("(%s) Fetching feed: %s (%s)\n", dt.Format("2006-01-02 15:04:05"), feed.Name, feed.Url)
 
 	rssFeed, err := fetchFeed(ctx, feed.Url)
 	if err != nil {
@@ -61,8 +67,15 @@ func scrapeFeeds(ctx context.Context, state *models.State) error {
 	}
 
 	for _, item := range rssFeed.Channel.Item {
-		fmt.Printf("%s\n", item.Title)
-		fmt.Printf("\t %s\n", item.Link)
+		// We ignore errors here, as they'll almost certainly be due
+		// to dupes, and we don't want to stop processing the rest of the feed.
+		state.DBQueries.AddPost(ctx, database.AddPostParams{
+			ID:          uuid.New(),
+			Title:       item.Title,
+			Url:         item.Link,
+			Description: sql.NullString{String: item.Description, Valid: item.Description != ""},
+			FeedID:      feed.ID,
+		})
 	}
 
 	fmt.Println()

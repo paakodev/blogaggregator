@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -38,6 +39,7 @@ func main() {
 	registry.Register("follow", middlewareLoggedIn(handlerFollowFeed))
 	registry.Register("following", middlewareLoggedIn(handlerFollowingFeeds))
 	registry.Register("unfollow", middlewareLoggedIn(handlerUnfollowFeed))
+	registry.Register("browse", middlewareLoggedIn(handlerBrowse))
 
 	registry.Register("help", func(state *models.State, cmd models.Command) error {
 		fmt.Println("Available commands:")
@@ -51,6 +53,7 @@ func main() {
 		fmt.Println("  follow <url>              - Follow a feed by URL (requires login)")
 		fmt.Println("  following                 - List followed feeds (requires login)")
 		fmt.Println("  unfollow <url>            - Unfollow a feed by URL (requires login)")
+		fmt.Println("  browse                    - Browse posts from followed feeds (requires login)")
 		return nil
 	})
 
@@ -299,6 +302,34 @@ func handlerFollowingFeeds(state *models.State, cmd models.Command, user databas
 	fmt.Println("Followed Feeds:")
 	for _, feed := range followedFeeds {
 		fmt.Printf("* %s (%s)\n", feed.FeedName, feed.FeedID)
+	}
+	return nil
+}
+
+func handlerBrowse(state *models.State, cmd models.Command, user database.User) error {
+	var limit = 2
+	if len(cmd.Args) > 0 {
+		limitArg, err := strconv.Atoi(cmd.Args[0])
+		if err != nil {
+			return fmt.Errorf("invalid limit: %v", err)
+		}
+		limit = limitArg
+	}
+
+	posts, err := state.DBQueries.GetPostsForUser(
+		context.Background(),
+		database.GetPostsForUserParams{
+			Name:  user.Name,
+			Limit: int32(limit),
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to get posts for user: %v", err)
+	}
+
+	fmt.Printf("Latest %d posts from followed feeds:\n", limit)
+	for _, post := range posts {
+		fmt.Printf("* %s (%s) - %s\n", post.Title, post.FeedName, post.Url)
 	}
 	return nil
 }
