@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/google/uuid"
 	_ "github.com/lib/pq"
@@ -37,6 +38,21 @@ func main() {
 	registry.Register("follow", middlewareLoggedIn(handlerFollowFeed))
 	registry.Register("following", middlewareLoggedIn(handlerFollowingFeeds))
 	registry.Register("unfollow", middlewareLoggedIn(handlerUnfollowFeed))
+
+	registry.Register("help", func(state *models.State, cmd models.Command) error {
+		fmt.Println("Available commands:")
+		fmt.Println("  login <username>          - Log in as a user")
+		fmt.Println("  register <username>       - Register a new user")
+		fmt.Println("  reset                     - Reset the database")
+		fmt.Println("  users                     - List all users")
+		fmt.Println("  agg <interval>            - Start feed aggregation with the specified interval (e.g., '10s', '1m')")
+		fmt.Println("  addfeed <name> <url>      - Add a new feed and follow it (requires login)")
+		fmt.Println("  feeds                     - List all feeds")
+		fmt.Println("  follow <url>              - Follow a feed by URL (requires login)")
+		fmt.Println("  following                 - List followed feeds (requires login)")
+		fmt.Println("  unfollow <url>            - Unfollow a feed by URL (requires login)")
+		return nil
+	})
 
 	args := os.Args[1:]
 	if len(args) == 0 {
@@ -137,13 +153,22 @@ func handlerUsers(state *models.State, cmd models.Command) error {
 }
 
 func handlerAgg(state *models.State, cmd models.Command) error {
-	url := "https://www.wagslane.dev/index.xml"
-	rssFeed, err := fetchFeed(context.Background(), url)
-	if err != nil {
-		return fmt.Errorf("failed to fetch feed: %v", err)
+	if len(cmd.Args) < 1 {
+		return fmt.Errorf("time interval is required")
 	}
 
-	fmt.Printf("Feed:\n%#v\n", rssFeed)
+	interval, err := time.ParseDuration(cmd.Args[0])
+	if err != nil {
+		return fmt.Errorf("invalid time interval: %v", err)
+	}
+
+	fmt.Printf("Collecting feeds every %s\n", interval)
+	ticker := time.NewTicker(interval)
+	for ; ; <-ticker.C {
+		if err := scrapeFeeds(context.Background(), state); err != nil {
+			fmt.Printf("Error scraping feeds: %v\n", err)
+		}
+	}
 	return nil
 }
 
